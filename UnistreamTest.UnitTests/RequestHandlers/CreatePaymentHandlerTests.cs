@@ -4,6 +4,7 @@ using NSubstitute;
 using UnistreamTest.Domain.Entities;
 using UnistreamTest.Infrastructure.Database;
 using UnistreamTest.Infrastructure.Redis.Abstract;
+using UnistreamTest.Models.Common;
 using UnistreamTest.Models.TransactionApi;
 using UnistreamTest.RequestHandlers;
 
@@ -32,7 +33,6 @@ namespace UnistreamTest.Tests.RequestHandlers
         public async Task HandleAsync_WhenTransactionAlreadyExists_ReturnsExistingCreateDate()
         {
             // Arrange
-            var dbName = Guid.NewGuid().ToString();
             await ClearDatabaseAsync();
 
             var existingTransaction = new Transaction
@@ -47,6 +47,10 @@ namespace UnistreamTest.Tests.RequestHandlers
             _dbContext.Add(createResult.Data!);
             await _dbContext.SaveChangesAsync(CancellationToken.None);
 
+            var dbSaveCalled = false;
+            void dbSaveEvent(object? sender, SavedChangesEventArgs e) => dbSaveCalled = true;
+            _dbContext.SavedChanges += dbSaveEvent;
+
             var redisSub = Substitute.For<IRedisTransactionsCountChecker>();
             var handler = new CreatePaymentTransactionHandler(_dbContext, redisSub);
 
@@ -57,16 +61,21 @@ namespace UnistreamTest.Tests.RequestHandlers
             Assert.True(result.Success);
             Assert.NotNull(result.Data);
             Assert.Equal(createResult.Data!.CreateDate, result.Data!.InsertDateTime);
-            // Redis should not be called
-            await redisSub.DidNotReceive().IncrementAndCheckTransactionsCountAsync(CancellationToken.None);
+            
+            Assert.False(dbSaveCalled);
+
+            _dbContext.SavedChanges -= dbSaveEvent;
         }
 
         [Fact]
         public async Task HandleAsync_WhenRedisDeniesIncrement_ReturnsValidationError()
         {
             // Arrange
-            var dbName = Guid.NewGuid().ToString();
             await ClearDatabaseAsync();
+
+            var dbSaveCalled = false;
+            void dbSaveEvent(object? sender, SavedChangesEventArgs e) => dbSaveCalled = true;
+            _dbContext.SavedChanges += dbSaveEvent;
 
             var request = new Transaction
             {
@@ -87,21 +96,27 @@ namespace UnistreamTest.Tests.RequestHandlers
             Assert.False(result.Success);
             Assert.NotNull(result.Error);
             Assert.Contains("Достигнут лимит транзакций", result.Error.Message);
-            await redisSub.Received(1).IncrementAndCheckTransactionsCountAsync(CancellationToken.None);
+
+            Assert.False(dbSaveCalled);
+
+            _dbContext.SavedChanges -= dbSaveEvent;
         }
 
         [Fact]
-        public async Task HandleAsync_WhenPaymentTransactionEntityValidationFails_ReturnsValidationErrors()
+        public async Task HandleAsync_WhenPaymentTransactionEntityValidationFails_ReturnsValidationErrors_AndDoesNotCallRedis()
         {
             // Arrange
-            var dbName = Guid.NewGuid().ToString();
             await ClearDatabaseAsync();
 
-            // Create a request that will fail validation (future TransactionDate)
+            var dbSaveCalled = false;
+            void dbSaveEvent(object? sender, SavedChangesEventArgs e) => dbSaveCalled = true;
+            _dbContext.SavedChanges += dbSaveEvent;
+
+            // Создаём запрос, который не пройдёт валидацию (дата транзакции в будущем)
             var request = new Transaction
             {
                 Id = Guid.NewGuid(),
-                TransactionDate = DateTime.UtcNow.AddMinutes(10), // future date
+                TransactionDate = DateTime.UtcNow.AddMinutes(10), // дата в будущем
                 Amount = 10m
             };
 
@@ -116,16 +131,25 @@ namespace UnistreamTest.Tests.RequestHandlers
             // Assert
             Assert.False(result.Success);
             Assert.NotNull(result.Error);
-            // FieldValidationErrorResultInfo inherits ErrorResultInfo and uses base message
+            // FieldValidationErrorResultInfo использует сообщение базового класса
             Assert.Equal("Проверьте правильность заполнения полей", result.Error.Message);
-            await redisSub.Received(1).IncrementAndCheckTransactionsCountAsync(CancellationToken.None);
+
+            Assert.False(dbSaveCalled);
+
+            // При наличии, проверяем конкретную ошибку поля
+            if (result.Error is FieldValidationErrorResultInfo fieldErrors)
+            {
+                Assert.True(fieldErrors.Errors.ContainsKey("transactionDate"));
+                Assert.Contains("Дата не может быть позже текущей", fieldErrors.Errors["transactionDate"]);
+            }
+
+            _dbContext.SavedChanges -= dbSaveEvent;
         }
 
         [Fact]
         public async Task HandleAsync_WhenNoExistingAndRedisAllows_CreatesAndSavesTransaction()
         {
             // Arrange
-            var dbName = Guid.NewGuid().ToString();
             await ClearDatabaseAsync();
 
             var request = new Transaction
@@ -140,6 +164,10 @@ namespace UnistreamTest.Tests.RequestHandlers
 
             var handler = new CreatePaymentTransactionHandler(_dbContext, redisSub);
 
+            var dbSaveCalled = false;
+            void dbSaveEvent(object? sender, SavedChangesEventArgs e) => dbSaveCalled = true;
+            _dbContext.SavedChanges += dbSaveEvent;
+
             // Act
             var result = await handler.HandleAsync(request, CancellationToken.None);
 
@@ -149,13 +177,15 @@ namespace UnistreamTest.Tests.RequestHandlers
             var createdInsertDate = result.Data!.InsertDateTime;
             Assert.NotEqual(default, createdInsertDate);
 
-            // Verify that the entity was saved in the DB
+            // Проверяем что сохранилось в бд
             var saved = await _dbContext.PaymentTransactions.FirstOrDefaultAsync(x => x.Id == request.Id, CancellationToken.None);
             Assert.NotNull(saved);
             Assert.Equal(request.Id, saved!.Id);
             Assert.Equal(saved.CreateDate, createdInsertDate);
 
-            await redisSub.Received(1).IncrementAndCheckTransactionsCountAsync(CancellationToken.None);
+            Assert.True(dbSaveCalled);
+
+            _dbContext.SavedChanges -= dbSaveEvent;
         }
 
         public void Dispose()

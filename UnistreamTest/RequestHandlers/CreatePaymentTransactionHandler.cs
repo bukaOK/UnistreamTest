@@ -24,6 +24,7 @@ namespace UnistreamTest.RequestHandlers
         public async Task<AppResult<CreateTransactionResponse>> HandleAsync(Transaction request, CancellationToken cancellationToken)
         {
             var existingTransactionCreateDate = await _dbContext.PaymentTransactions
+                .AsNoTracking()
                 .Where(x => x.Id == request.Id)
                 .Select(x => x.CreateDate)
                 .FirstOrDefaultAsync(cancellationToken);

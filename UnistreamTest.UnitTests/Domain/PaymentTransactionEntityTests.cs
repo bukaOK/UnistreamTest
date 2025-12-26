@@ -52,8 +52,8 @@ namespace UnistreamTest.UnitTests.Domain
             Assert.IsType<FieldValidationErrorResultInfo>(result.Error);
 
             var validation = (FieldValidationErrorResultInfo)result.Error!;
-            Assert.True(validation.Errors.ContainsKey(nameof(Transaction.TransactionDate)));
-            var messages = validation.Errors[nameof(Transaction.TransactionDate)];
+            Assert.True(validation.Errors.ContainsKey("transactionDate"));
+            var messages = validation.Errors["transactionDate"];
             Assert.Contains("Дата не может быть позже текущей", messages);
         }
 
@@ -77,9 +77,9 @@ namespace UnistreamTest.UnitTests.Domain
             Assert.IsType<FieldValidationErrorResultInfo>(result.Error);
 
             var validation = (FieldValidationErrorResultInfo)result.Error!;
-            Assert.True(validation.Errors.ContainsKey(nameof(Transaction.Amount)));
-            var messages = validation.Errors[nameof(Transaction.Amount)];
-            Assert.Contains("Сумма не может быть меньше 0", messages);
+            Assert.True(validation.Errors.ContainsKey("amount"));
+            var messages = validation.Errors["amount"];
+            Assert.Contains("Сумма должна быть положительной", messages);
         }
 
         [Fact]
@@ -102,14 +102,14 @@ namespace UnistreamTest.UnitTests.Domain
             Assert.IsType<FieldValidationErrorResultInfo>(result.Error);
 
             var validation = (FieldValidationErrorResultInfo)result.Error!;
-            Assert.True(validation.Errors.ContainsKey(nameof(Transaction.TransactionDate)));
-            Assert.True(validation.Errors.ContainsKey(nameof(Transaction.Amount)));
+            Assert.True(validation.Errors.ContainsKey("transactionDate"));
+            Assert.True(validation.Errors.ContainsKey("amount"));
 
-            var dateMessages = validation.Errors[nameof(Transaction.TransactionDate)];
-            var amountMessages = validation.Errors[nameof(Transaction.Amount)];
+            var dateMessages = validation.Errors["transactionDate"];
+            var amountMessages = validation.Errors["amount"];
 
             Assert.Contains("Дата не может быть позже текущей", dateMessages);
-            Assert.Contains("Сумма не может быть меньше 0", amountMessages);
+            Assert.Contains("Сумма должна быть положительной", amountMessages);
         }
     }
 }

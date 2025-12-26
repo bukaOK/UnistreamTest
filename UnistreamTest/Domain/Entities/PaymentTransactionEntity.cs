@@ -21,8 +21,8 @@ namespace UnistreamTest.Domain.Entities
 
             if (universalTransactionDate > DateTime.UtcNow)
                 validationError.AddError("transactionDate", "Дата не может быть позже текущей");
-            if (transaction.Amount < 0)
-                validationError.AddError("amount", "Сумма не может быть меньше 0");
+            if (transaction.Amount <= 0)
+                validationError.AddError("amount", "Сумма должна быть положительной");
 
             if (validationError.Errors.Count > 0)
                 return validationError;
